@@ -1,0 +1,11 @@
+{
+    "name": "gsheetorm",
+    "version": "1.0.0",
+    "description": "Lightweight ORM for Google Spreadsheet",
+    "main": "index.js",
+    "author": "Tommi R Perdana <tommi@kibaraya.com>",
+    "license": "MIT",
+    "dependencies": {
+      "googleapis": "^118.0.0"
+    }
+  }
