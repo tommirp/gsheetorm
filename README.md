@@ -38,7 +38,7 @@ Untuk mulai menggunakan GSheetORM, kamu perlu mengonfigurasi autentikasi dengan 
     
     const orm = await GSheetORM.authenticate({
       credentials: require('./path-to-your-credentials.json'),
-      sheetId: 'spreadsheetId', // ID dari spreadsheet
+      spreadsheetId: 'spreadsheetId', // ID dari spreadsheet
       sheetName: 'Sheet1', // Nama sheet di spreadsheet
     });
 
