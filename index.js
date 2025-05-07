@@ -211,40 +211,81 @@ class GSheetORM {
     return { success: true, updated };
   }
 
+  // async delete(where) {
+  //   const res = await this.sheets.spreadsheets.values.get({
+  //     spreadsheetId: this.spreadsheetId,
+  //     range: this.sheetName,
+  //   });
+
+  //   const values = res.data.values;
+  //   const newValues = [values[0]];
+  //   const deleted = [];
+
+  //   for (let i = 1; i < values.length; i++) {
+  //     const row = values[i];
+  //     const rowObj = {};
+  //     this.headers.forEach((h, j) => {
+  //       rowObj[h] = row[j];
+  //     });
+
+  //     if (Object.entries(where).every(([k, v]) => rowObj[k] == v)) {
+  //       deleted.push(i + 1);
+  //     } else {
+  //       newValues.push(row);
+  //     }
+  //   }
+
+  //   await this.sheets.spreadsheets.values.update({
+  //     spreadsheetId: this.spreadsheetId,
+  //     range: this.sheetName,
+  //     valueInputOption: 'RAW',
+  //     resource: { values: newValues },
+  //   });
+
+  //   return { success: true, deleted };
+  // }
+  
   async delete(where) {
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
       range: this.sheetName,
     });
-
+  
     const values = res.data.values;
-    const newValues = [values[0]];
+    const newValues = [values[0]];  // Baris header tetap
+  
     const deleted = [];
-
+  
+    // Proses untuk mengecek baris yang sesuai dengan kondisi 'where'
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       const rowObj = {};
+      
+      // Membuat objek rowObj berdasarkan header
       this.headers.forEach((h, j) => {
         rowObj[h] = row[j];
       });
-
-      if (Object.entries(where).every(([k, v]) => rowObj[k] == v)) {
-        deleted.push(i + 1);
+  
+      // Jika baris memenuhi kondisi 'where', maka baris tersebut "dihapus"
+      if (Object.entries(where).every(([key, value]) => rowObj[key] == value)) {
+        deleted.push(i + 1);  // Menyimpan nomor baris yang dihapus
       } else {
+        // Jika baris tidak dihapus, tambahkan ke newValues
         newValues.push(row);
       }
     }
-
+  
+    // Melakukan update untuk menghapus baris yang sesuai
     await this.sheets.spreadsheets.values.update({
       spreadsheetId: this.spreadsheetId,
       range: this.sheetName,
       valueInputOption: 'RAW',
       resource: { values: newValues },
     });
-
-    return { success: true, deleted };
+  
+    return { success: true, deleted };  // Mengembalikan baris yang dihapus
   }
-
+    
   resetQuery() {
     this.query = {};
   }
