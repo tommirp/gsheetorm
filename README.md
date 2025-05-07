@@ -131,4 +131,4 @@ Jika kamu menemukan bug atau ingin menambahkan fitur baru, silakan buka issue at
 ---
 
 ## Support Me
-![Ko-Fi](https://ko-fi.com/tommirp)
+[![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/tommirp)
