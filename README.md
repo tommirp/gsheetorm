@@ -79,14 +79,14 @@ Menambahkan data ke Google Sheets bisa dilakukan dengan insert(). Kamu bisa mena
 Untuk mengupdate data berdasarkan kondisi, gunakan update().
     ```bash
     await orm.update(
-      row => row.Name === 'John Doe', // kondisi yang sesuai dengan data
-      row => ({ ...row, Age: 31 }) // update data
+      { "Name": "Jhon Doe" }, // kondisi yang sesuai dengan data
+      { "Age": 31 }) // update data
     );
     
 6. DELETE Data
 Untuk menghapus data berdasarkan kondisi, gunakan delete().
     ```bash
-    await orm.delete(row => row.Name === 'John Doe');
+    await orm.delete({ "ID": 1 });
 
 ---
 
