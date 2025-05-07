@@ -130,5 +130,5 @@ Jika kamu menemukan bug atau ingin menambahkan fitur baru, silakan buka issue at
 
 ---
 
-## Support Me
+## Buy me a Coffee
 [![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/tommirp)
