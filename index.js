@@ -211,79 +211,55 @@ class GSheetORM {
     return { success: true, updated };
   }
 
-  // async delete(where) {
-  //   const res = await this.sheets.spreadsheets.values.get({
-  //     spreadsheetId: this.spreadsheetId,
-  //     range: this.sheetName,
-  //   });
-
-  //   const values = res.data.values;
-  //   const newValues = [values[0]];
-  //   const deleted = [];
-
-  //   for (let i = 1; i < values.length; i++) {
-  //     const row = values[i];
-  //     const rowObj = {};
-  //     this.headers.forEach((h, j) => {
-  //       rowObj[h] = row[j];
-  //     });
-
-  //     if (Object.entries(where).every(([k, v]) => rowObj[k] == v)) {
-  //       deleted.push(i + 1);
-  //     } else {
-  //       newValues.push(row);
-  //     }
-  //   }
-
-  //   await this.sheets.spreadsheets.values.update({
-  //     spreadsheetId: this.spreadsheetId,
-  //     range: this.sheetName,
-  //     valueInputOption: 'RAW',
-  //     resource: { values: newValues },
-  //   });
-
-  //   return { success: true, deleted };
-  // }
-  
   async delete(where) {
     const res = await this.sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: this.sheetName,
+      range: `${this.sheetName}`,
     });
   
     const values = res.data.values;
-    const newValues = [values[0]];  // Baris header tetap
+    if (!values || values.length === 0) {
+      return { success: false, message: 'No data found' };
+    }
   
+    const headers = values[0];
+    const dataRows = values.slice(1);
+  
+    const newData = [];
     const deleted = [];
   
-    // Proses untuk mengecek baris yang sesuai dengan kondisi 'where'
-    for (let i = 1; i < values.length; i++) {
-      const row = values[i];
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
       const rowObj = {};
-      
-      // Membuat objek rowObj berdasarkan header
-      this.headers.forEach((h, j) => {
-        rowObj[h] = row[j];
+      headers.forEach((h, j) => {
+        rowObj[h] = row[j] || '';
       });
   
-      // Jika baris memenuhi kondisi 'where', maka baris tersebut "dihapus"
-      if (Object.entries(where).every(([key, value]) => rowObj[key] == value)) {
-        deleted.push(i + 1);  // Menyimpan nomor baris yang dihapus
+      const shouldDelete = Object.entries(where).every(([key, value]) => rowObj[key] == value);
+      if (shouldDelete) {
+        deleted.push(i + 2);
       } else {
-        // Jika baris tidak dihapus, tambahkan ke newValues
-        newValues.push(row);
+        newData.push(row);
       }
     }
   
-    // Melakukan update untuk menghapus baris yang sesuai
-    await this.sheets.spreadsheets.values.update({
+    const finalData = [headers, ...newData];
+  
+    // Step 1: CLEAR ALL
+    await this.sheets.spreadsheets.values.clear({
       spreadsheetId: this.spreadsheetId,
       range: this.sheetName,
-      valueInputOption: 'RAW',
-      resource: { values: newValues },
     });
   
-    return { success: true, deleted };  // Mengembalikan baris yang dihapus
+    // Step 2: UPDATE NEW DATA
+    await this.sheets.spreadsheets.values.update({
+      spreadsheetId: this.spreadsheetId,
+      range: `${this.sheetName}!A1`,
+      valueInputOption: 'RAW',
+      resource: { values: finalData },
+    });
+  
+    return { success: true, deletedRows: deleted };
   }
     
   resetQuery() {
