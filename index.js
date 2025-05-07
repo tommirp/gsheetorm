@@ -1,140 +1,252 @@
 const { google } = require('googleapis');
 
 class GSheetORM {
-  constructor(config) {
-    this.config = config;
-    this.sheetId = config.sheetId;
-    this.sheetName = config.sheetName || 'Sheet1';
-    this.maxCols = 15;
-    this.maxRows = 500000;
-    this.data = [];
+  constructor(auth, spreadsheetId, sheetName) {
+    this.auth = auth;
+    this.sheets = google.sheets({ version: 'v4', auth });
+    this.spreadsheetId = spreadsheetId;
+    this.sheetName = sheetName;
+    this.headers = [];
+    this.query = {};
   }
 
-  async authenticate() {
-    const auth = new google.auth.GoogleAuth({
-      credentials: this.config.credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  static async authenticate({ credentials, spreadsheetId, sheetName }) {
+    const { client_email, private_key } = credentials;
+    const jwtClient = new google.auth.JWT(
+      client_email,
+      null,
+      private_key,
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+    await jwtClient.authorize();
+    const orm = new GSheetORM(jwtClient, spreadsheetId, sheetName);
+    await orm.initHeaders();
+    return orm;
+  }
+
+  async initHeaders() {
+    const res = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
     });
-    this.authClient = await auth.getClient();
-    this.sheets = google.sheets({ version: 'v4', auth: this.authClient });
+    this.headers = res.data.values[0];
+  }
+
+  select(columns = []) {
+    this.query.select = columns;
     return this;
   }
 
-  async _loadSheet(sheetName) {
-    const res = await this.sheets.spreadsheets.values.get({
-      spreadsheetId: this.sheetId,
-      range: sheetName,
-    });
-    const [header, ...rows] = res.data.values || [];
-    return rows.map(row =>
-      Object.fromEntries(header.map((key, i) => [key, row[i] || null]))
-    );
+  where(condition = {}) {
+    this.query.where = condition;
+    return this;
   }
 
-  async select(columns = []) {
-    const all = await this._loadSheet(this.sheetName);
-    if (all.length > this.maxRows || (all[0] && Object.keys(all[0]).length > this.maxCols)) {
-      throw new Error('Exceeded maximum allowed columns or rows');
-    }
-    this.data = all;
-    if (columns.length > 0) {
-      this.data = this.data.map(row =>
-        Object.fromEntries(Object.entries(row).filter(([k]) => columns.includes(k)))
+  orderBy(column, direction = 'asc') {
+    this.query.orderBy = { column, direction };
+    return this;
+  }
+
+  join(sheetName, localKey, foreignKey, alias = null, selectColumns = []) {
+    if (!this.query.joins) this.query.joins = [];
+    this.query.joins.push({ sheetName, localKey, foreignKey, alias, selectColumns });
+    return this;
+  }
+
+  async run() {
+    const res = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
+    });
+
+    const rows = res.data.values.slice(1).map(row => {
+      const obj = {};
+      this.headers.forEach((h, i) => {
+        obj[h] = row[i];
+      });
+      return obj;
+    });
+
+    let filtered = [...rows];
+
+    if (this.query.where) {
+      filtered = filtered.filter(row =>
+        Object.entries(this.query.where).every(([key, value]) => row[key] == value)
       );
     }
-    return this;
-  }
 
-  where(fn) {
-    this.data = this.data.filter(fn);
-    return this;
-  }
-
-  orderBy(field, direction = 'asc') {
-    this.data.sort((a, b) => {
-      const valA = a[field] ?? '';
-      const valB = b[field] ?? '';
-      if (valA === valB) return 0;
-      return (direction === 'desc' ? valA < valB : valA > valB) ? 1 : -1;
-    });
-    return this;
-  }
-
-  async leftJoin({ sheetName, key, foreignKey, alias }) {
-    const joinData = await this._loadSheet(sheetName);
-    const joinMap = new Map();
-    for (const row of joinData) {
-      joinMap.set(row[key], row);
+    if (this.query.orderBy) {
+      const { column, direction } = this.query.orderBy;
+      filtered.sort((a, b) => {
+        const valA = a[column] || '';
+        const valB = b[column] || '';
+        return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      });
     }
 
-    this.data = this.data.map(row => {
-      const joined = joinMap.get(row[foreignKey]);
-      return joined ? { ...row, [alias]: joined } : row;
-    });
-    return this;
-  }
+    if (this.query.joins && this.query.joins.length > 0) {
+      for (const join of this.query.joins) {
+        const resJoin = await this.sheets.spreadsheets.values.get({
+          spreadsheetId: this.spreadsheetId,
+          range: join.sheetName,
+        });
 
-  async insert(data) {
-    const values = Array.isArray(data) ? data : [data];
-    const keys = Object.keys(values[0]);
-    const rows = values.map(obj => keys.map(k => obj[k]));
-    await this.sheets.spreadsheets.values.append({
-      spreadsheetId: this.sheetId,
-      range: this.sheetName,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: rows },
-    });
-    return { inserted: rows.length };
-  }
+        const joinHeaders = resJoin.data.values[0];
+        const joinData = resJoin.data.values.slice(1).map(row => {
+          const obj = {};
+          joinHeaders.forEach((h, i) => {
+            obj[h] = row[i];
+          });
+          return obj;
+        });
 
-  async update(matchFn, updateFn) {
-    const res = await this.sheets.spreadsheets.values.get({
-      spreadsheetId: this.sheetId,
-      range: this.sheetName,
-    });
-    const [header, ...rows] = res.data.values || [];
-    let updated = 0;
-    const newRows = rows.map(row => {
-      const obj = Object.fromEntries(header.map((k, i) => [k, row[i] || null]));
-      if (matchFn(obj)) {
-        const updatedObj = updateFn(obj);
-        updated++;
-        return header.map(k => updatedObj[k] || '');
+        const joinMap = new Map();
+        for (const row of joinData) {
+          joinMap.set(row[join.foreignKey], row);
+        }
+
+        filtered = filtered.map(row => {
+          const match = joinMap.get(row[join.localKey]);
+          if (match) {
+            const selectedJoinData = {};
+            const aliasPrefix = join.alias || join.sheetName;
+
+            join.selectColumns.forEach(col => {
+              selectedJoinData[`${aliasPrefix}.${col}`] = match[col];
+            });
+
+            return { ...row, ...selectedJoinData };
+          }
+          return row;
+        });
       }
-      return row;
-    });
-    newRows.unshift(header);
-    await this.sheets.spreadsheets.values.update({
-      spreadsheetId: this.sheetId,
-      range: this.sheetName,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: newRows },
-    });
-    return { updated };
+    }
+
+    if (this.query.select && this.query.select.length > 0) {
+      filtered = filtered.map(row => {
+        const selected = {};
+        this.query.select.forEach(col => {
+          selected[col] = row[col];
+        });
+        return selected;
+      });
+    }
+
+    this.resetQuery();
+    return filtered;
   }
 
-  async delete(conditionFn) {
+  async insertOne(data) {
+    const row = this.headers.map(h => data[h] || '');
+    const res = await this.sheets.spreadsheets.values.append({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
+      valueInputOption: 'RAW',
+      resource: { values: [row] },
+    });
+
+    const updatedRange = res.data.updates.updatedRange;
+    const match = updatedRange.match(/![A-Z]+(\d+)$/);
+    const rowNumber = match ? parseInt(match[1]) : null;
+
+    const totalCells = this.headers.length * rowNumber;
+    const full = totalCells >= 500000;
+
+    return { success: true, rowNumber, full };
+  }
+
+  async insertMany(dataArray) {
+    const rows = dataArray.map(data =>
+      this.headers.map(h => data[h] || '')
+    );
+
+    const res = await this.sheets.spreadsheets.values.append({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
+      valueInputOption: 'RAW',
+      resource: { values: rows },
+    });
+
+    const updatedRange = res.data.updates.updatedRange;
+    const match = updatedRange.match(/![A-Z]+(\d+)$/);
+    const rowNumber = match ? parseInt(match[1]) : null;
+    const totalCells = this.headers.length * rowNumber;
+    const full = totalCells >= 500000;
+
+    return { success: true, rowNumber, full };
+  }
+
+  async update(where, data) {
     const res = await this.sheets.spreadsheets.values.get({
-      spreadsheetId: this.sheetId,
+      spreadsheetId: this.spreadsheetId,
       range: this.sheetName,
     });
-    const [header, ...rows] = res.data.values || [];
-    const filtered = rows.filter(row => {
-      const obj = Object.fromEntries(header.map((k, i) => [k, row[i] || null]));
-      return !conditionFn(obj);
-    });
-    filtered.unshift(header);
+
+    const values = res.data.values;
+    const updated = [];
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const rowObj = {};
+      this.headers.forEach((h, j) => {
+        rowObj[h] = row[j];
+      });
+
+      if (Object.entries(where).every(([k, v]) => rowObj[k] == v)) {
+        const updatedRow = [...row];
+        this.headers.forEach((h, j) => {
+          if (h in data) updatedRow[j] = data[h];
+        });
+        values[i] = updatedRow;
+        updated.push(i + 1);
+      }
+    }
+
     await this.sheets.spreadsheets.values.update({
-      spreadsheetId: this.sheetId,
+      spreadsheetId: this.spreadsheetId,
       range: this.sheetName,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: filtered },
+      valueInputOption: 'RAW',
+      resource: { values },
     });
-    return { deleted: rows.length - filtered.length + 1 };
+
+    return { success: true, updated };
   }
 
-  getResults() {
-    return this.data;
+  async delete(where) {
+    const res = await this.sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
+    });
+
+    const values = res.data.values;
+    const newValues = [values[0]];
+    const deleted = [];
+
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const rowObj = {};
+      this.headers.forEach((h, j) => {
+        rowObj[h] = row[j];
+      });
+
+      if (Object.entries(where).every(([k, v]) => rowObj[k] == v)) {
+        deleted.push(i + 1);
+      } else {
+        newValues.push(row);
+      }
+    }
+
+    await this.sheets.spreadsheets.values.update({
+      spreadsheetId: this.spreadsheetId,
+      range: this.sheetName,
+      valueInputOption: 'RAW',
+      resource: { values: newValues },
+    });
+
+    return { success: true, deleted };
+  }
+
+  resetQuery() {
+    this.query = {};
   }
 }
 
