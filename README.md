@@ -126,4 +126,9 @@ Jika kamu menemukan bug atau ingin menambahkan fitur baru, silakan buka issue at
 ---
 
 ## Lisensi
-MIT License
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## Support Me
+![Ko-Fi](https://ko-fi.com/tommirp)
